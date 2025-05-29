@@ -5,44 +5,43 @@ import os
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.schema import HumanMessage
 
-# Importar st_tailwind
-try:
-    import st_tailwind as tw
-except ImportError:
-    tw = None 
-
 # --- st.set_page_config() DEBE SER LO PRIMERO ---
 st.set_page_config(
-    page_title="Consultor de Emprendimientos IA", 
-    layout="wide", 
-    initial_sidebar_state="auto", 
+    page_title="Consultor de Emprendimientos IA",
+    layout="wide",
+    initial_sidebar_state="auto",
     page_icon="🚀"
 )
 
-# --- Carga de API Key y Inicialización de LLM (fuera de main) ---
-_llm_initialization_error = None 
+# --- Función para cargar CSS local ---
+def local_css(file_name):
+    try:
+        with open(file_name) as f:
+            st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+    except FileNotFoundError:
+        if os.getenv("STREAMLIT_ENVIRONMENT") != "SHARE":
+            st.error(f"Archivo CSS '{file_name}' no encontrado. Asegúrate de compilar Tailwind y que el archivo esté en la carpeta 'static'.")
+
+# --- Carga de API Key y Inicialización de LLM ---
+_llm_initialization_error = None
 GOOGLE_API_KEY = None
 llm = None
 model_name_to_use = "gemini-1.5-flash-latest"
 
-# Determinar si estamos en Streamlit Cloud
-# IS_STREAMLIT_CLOUD = os.getenv('STREAMLIT_SERVER_ öffentliche_PORT') is not None # Otra forma
-IS_STREAMLIT_CLOUD = os.environ.get('STREAMLIT_SHARING_MODE') == 'true' or "SHARE_ streamlit_io" in os.environ.get("SERVER_SOFTWARE", "") or os.getenv("STREAMLIT_ENVIRONMENT") == "SHARE"
-
+IS_STREAMLIT_CLOUD = os.environ.get('STREAMLIT_SHARING_MODE') == 'true' or \
+                     "SHARE_ streamlit_io" in os.environ.get("SERVER_SOFTWARE", "") or \
+                     os.getenv("STREAMLIT_ENVIRONMENT") == "SHARE"
 
 if IS_STREAMLIT_CLOUD and hasattr(st, 'secrets') and "GOOGLE_API_KEY" in st.secrets:
-    # print("Cargando API Key desde st.secrets (Streamlit Cloud)") # Para depuración
     GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
 else:
-    # print("No en Streamlit Cloud o GOOGLE_API_KEY no en st.secrets. Intentando .env local.") # Para depuración
     try:
         from dotenv import load_dotenv
-        # Asegurarse de que el .env está en el mismo directorio que app.py o especificar la ruta
         dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
         if os.path.exists(dotenv_path):
             load_dotenv(dotenv_path)
         GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-    except ImportError: 
+    except ImportError:
         GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 if GOOGLE_API_KEY:
@@ -50,19 +49,18 @@ if GOOGLE_API_KEY:
         llm = ChatGoogleGenerativeAI(
             model=model_name_to_use,
             google_api_key=GOOGLE_API_KEY,
-            temperature=0.4,
+            temperature=0.5, # Ajustado para permitir algo de creatividad en ejemplos
         )
     except Exception as e:
-        _llm_initialization_error = e 
+        _llm_initialization_error = e
         llm = None
 else:
-    # Si GOOGLE_API_KEY sigue siendo None después de los intentos
     _llm_initialization_error = Exception("GOOGLE_API_KEY no fue encontrada ni en st.secrets ni en el entorno local (.env).") if not _llm_initialization_error else _llm_initialization_error
 
 
-# --- Definiciones de Preguntas y Funciones Auxiliares ---
+# --- Definiciones de Preguntas ---
 preguntas_emprendimiento = [
-    {"id": 1, "texto": "Cuál es la idea de negocio?", "detalle": "(Definir claramente el producto o servicio que se ofrecerá y cómo se diferencia de la competencia?)"},
+    {"id": 1, "texto": "Cuál es la idea de negocio?", "detalle": "(Define claramente el producto o servicio que se ofrecerá y cómo se diferencia de la competencia?)"},
     {"id": 2, "texto": "Quién o cuál es el público objetivo?", "detalle": "(identificar el perfil demográfico de tus clientes potenciales, sus necesidades y preferencias)"},
     {"id": 3, "texto": "Cuál es la propuesta de valor?", "detalle": "(Qué valor agregado se ofrecerá a los clientes? Por qué deberían elegir tu producto o servicio por encima de los otros?)"},
     {"id": 4, "texto": "Cuál es el modelo de negocio?", "detalle": "(Define cómo generarás ingresos ya sea a través de la venta de productos, servicios, publicidad, suscripciones, etc?)"},
@@ -74,8 +72,8 @@ preguntas_emprendimiento = [
     {"id": 10, "texto": "Cuál es la inversión o capital inicial?", "detalle": "(locales, equipos, inventario, tecnología, personal, etc)"}
 ]
 
-def obtener_feedback_gemini(texto_pregunta, respuesta_usuario, nombre_emprendimiento, nombre_emprendedor):
-    global llm, _llm_initialization_error 
+def obtener_feedback_gemini(texto_pregunta, detalle_pregunta, respuesta_usuario, nombre_emprendimiento, nombre_emprendedor, edit_count):
+    global llm, _llm_initialization_error
     if not llm:
         if _llm_initialization_error:
             return f"Error al inicializar el modelo de IA: {_llm_initialization_error}"
@@ -84,47 +82,54 @@ def obtener_feedback_gemini(texto_pregunta, respuesta_usuario, nombre_emprendimi
         else:
             return "Error: El modelo de lenguaje no está inicializado por una razón desconocida."
 
-    if not respuesta_usuario or not respuesta_usuario.strip():
-        return "Veo que no has ingresado una respuesta aún. Tómate tu tiempo para reflexionar sobre esta pregunta. ¿Qué ideas iniciales te vienen a la mente?"
-    
+    if edit_count >= 2:
+        return f"¡Gracias por tu esfuerzo y dedicación en esta pregunta, {nombre_emprendedor if nombre_emprendedor else 'Emprendedor/a'}! Has trabajado mucho en ella. Podemos continuar."
+
     prompt_consultor = f"""
-Eres un consultor de emprendimientos altamente experimentado, calmado y analítico.
-Tu enfoque se basa firmemente en los principios de dos libros fundamentales: "Empieza con el porqué" de Simon Sinek y "Built to Last" de Jim Collins y Jerry Porras.
+Eres un consultor de emprendimientos muy amigable, paciente y extremadamente claro, como si estuvieras explicando conceptos de negocios a un amigo adolescente que está empezando. Tu objetivo principal es ayudarle a pensar con claridad y profundidad sobre cada aspecto de su idea.
+El principio de "Empezar con el Porqué" de Simon Sinek (entender la razón fundamental, la causa o creencia detrás del negocio) es importante y debe estar de fondo, pero **tu prioridad es abordar la pregunta específica que se le hizo al emprendedor.**
 
-El emprendedor, {nombre_emprendedor if nombre_emprendedor else 'Emprendedor/a'}, está trabajando en su proyecto llamado "{nombre_emprendimiento if nombre_emprendimiento else 'su emprendimiento'}".
-Actualmente está respondiendo a la pregunta del cuestionario: "{texto_pregunta}"
-Su respuesta ha sido:
-"{respuesta_usuario}"
+El emprendedor se llama {nombre_emprendedor if nombre_emprendedor else 'tú'} y su proyecto es "{nombre_emprendimiento if nombre_emprendimiento else 'tu idea'}".
+Está respondiendo a la pregunta: "{texto_pregunta}"
+El detalle de la pregunta es: "{detalle_pregunta}"
+Su respuesta ha sido: "{respuesta_usuario if respuesta_usuario.strip() else 'Parece que aún no has respondido o tu respuesta es muy breve.'}"
 
-Tu tarea es analizar su respuesta desde la perspectiva de los libros mencionados y guiarlo para que profundice en su pensamiento. NO le des respuestas hechas ni soluciones directas. En lugar de eso, formula preguntas claras y reflexivas que lo ayuden a desarrollar sus propias ideas.
+**Instrucciones para tu respuesta:**
 
-Considera lo siguiente en tu análisis y preguntas de seguimiento:
-- **Claridad del Porqué (Sinek):** ¿La respuesta refleja un entendimiento profundo del propósito, causa o creencia detrás de la idea o acción? Si no es así, ¿cómo puedes preguntarle para que explore su "Porqué"? Por ejemplo: "Interesante perspectiva, {nombre_emprendedor if nombre_emprendedor else 'Emprendedor/a'}. Yendo un paso más allá, ¿cuál es la creencia fundamental que impulsa esta idea de negocio?" o "Cuando piensas en el impacto a largo plazo de esto, ¿cuál es el 'porqué' más profundo que te motiva?".
-- **Visión a Largo Plazo y Fundamentos (Collins & Porras):** ¿La respuesta considera elementos para construir una empresa duradera? ¿Hay indicios de valores fundamentales, un propósito que va más allá del dinero, o una visión audaz? Pregunta para explorar esto. Por ejemplo: "Pensando en los próximos 10-20 años, ¿cómo contribuye esta respuesta a la visión a largo plazo que tienes para {nombre_emprendimiento if nombre_emprendimiento else 'tu emprendimiento'}?" o "Si {nombre_emprendimiento if nombre_emprendimiento else 'tu emprendimiento'} tuviera que escribir sus valores fundamentales, ¿cómo se relacionaría esta respuesta con ellos?".
-- **Profundidad y Especificidad:** Si la respuesta es vaga o superficial, pide ejemplos concretos o mayor elaboration. Por ejemplo: "Entiendo la idea general. ¿Podrías darme un ejemplo específico de cómo se manifestaría esto en la operación diaria de {nombre_emprendimiento if nombre_emprendimiento else 'tu emprendimiento'}?" o "Cuando mencionas 'mejorar la experiencia del cliente', ¿qué aspectos específicos de esa experiencia tienes en mente y cómo los abordarías de manera diferente?".
-- **Coherencia:** ¿La respuesta es coherente con posibles respuestas anteriores o con los principios generales de un negocio con propósito y visión?
+A. **SI LA RESPUESTA DEL USUARIO ES NULA O MUY CORTA (ej. "no sé", "vender cosas", menos de 2-3 palabras con sentido):**
+    1.  **Explica la Pregunta de Forma Sencilla:** Reformula la pregunta "{texto_pregunta}" en palabras muy simples. Explica qué tipo de información se busca con ella. Por ejemplo, si es sobre "Público Objetivo", explica qué significa eso.
+    2.  **DA 2-3 EJEMPLOS CONCRETOS Y SENCILLOS** relevantes para la pregunta "{texto_pregunta}". Estos ejemplos deben ilustrar respuestas claras y bien pensadas a ESA PREGUNTA.
+        *   Ejemplo para "¿Quién es tu público objetivo?": "Imagina que quieres vender patinetas. Un público podrían ser chicos y chicas de 13 a 18 años que aman el skate y buscan productos duraderos y con estilo. Otro podría ser adultos jóvenes que usan la patineta para moverse por la ciudad y buscan algo ligero y práctico. ¿Ves cómo son diferentes?"
+    3.  **Pregunta Guía:** Termina con una pregunta amable que invite al usuario a pensar en su propia situación basándose en la explicación y los ejemplos. Ejemplo: "Pensando en tu idea de {nombre_emprendimiento if nombre_emprendimiento else 'tu proyecto'}, ¿quiénes crees que serían las personas más interesadas en lo que ofreces? ¿Cómo son?"
 
-**Tu estilo de comunicación:**
-- Calmado, analítico, reflexivo.
-- Empático y alentador, pero firme en guiar hacia la profundidad.
-- Usa un lenguaje claro y accesible.
+B. **SI LA RESPUESTA DEL USUARIO ES SUPERFICIAL O GENERAL (ej. tiene algunas palabras pero no profundiza, no es específica):**
+    1.  **Reconocimiento Positivo:** Empieza con algo como: "¡Entendido! Mencionas que [resume brevemente su respuesta]. Es un buen punto de partida."
+    2.  **Explicación de por qué se necesita más detalle PARA ESA PREGUNTA:** "Para que esta parte de tu plan sea realmente fuerte, ayuda mucho si somos un poco más específicos. Por ejemplo, si la pregunta es sobre 'Propuesta de Valor' y dices 'dar un buen servicio', eso es genial, pero muchas empresas intentan hacer eso."
+    3.  **DA UN EJEMPLO CONCRETO de una respuesta más detallada o específica PARA LA PREGUNTA "{texto_pregunta}"**: "Una propuesta de valor más específica podría ser 'Ofrecemos el único servicio de reparación de bicicletas en el barrio que te devuelve la bici el mismo día y con una garantía de 30 días, porque entendemos que necesitas tu bici funcionando ya'. ¿Notas la diferencia en el detalle?"
+    4.  **Pregunta Guía Específica:** Haz una pregunta que le ayude a añadir ese nivel de detalle o especificidad a SU respuesta actual. Ejemplo: "Volviendo a tu idea de [su respuesta], ¿qué detalles podrías añadir para que alguien entienda exactamente qué te hace diferente o especial en este punto?"
+    5.  **(Opcional, si aplica y la pregunta lo permite) Conexión Sutil al "Porqué":** "A veces, pensar en tu 'Porqué' principal te puede ayudar a encontrar esos detalles. Si tu 'Porqué' es [ejemplo de porqué], ¿cómo se reflejaría eso en tu respuesta a '{texto_pregunta}'?" (Usa esto con moderación y solo si encaja naturalmente).
 
-**Formato de tu respuesta (Output):**
-1. Un breve reconocimiento o comentario inicial sobre la respuesta del emprendedor (1-2 frases). Por ejemplo: "Gracias por compartir esto, {nombre_emprendedor if nombre_emprendedor else 'Emprendedor/a'}." o "Es un punto interesante el que mencionas sobre..."
-2. Una o dos preguntas de seguimiento CLAVE (no más de dos). Estas preguntas deben estar diseñadas para estimular su pensamiento según los principios descritos.
+C. **SI LA RESPUESTA DEL USUARIO ES BUENA, DETALLADA O BIEN ENCAMINADA:**
+    1.  **Felicitación Específica:** "¡Muy bien, {nombre_emprendedor if nombre_emprendedor else 'crack'}! Me gusta mucho cómo has explicado [menciona algo específico y positivo de su respuesta]. Se nota que le has dado vueltas."
+    2.  **1 o 2 Preguntas de Profundización RELEVANTES A LA PREGUNTA ACTUAL:**
+        *   Estas preguntas deben buscar más claridad, implicaciones o los siguientes pasos relacionados con lo que acaba de responder.
+        *   **Solo si es natural y relevante para la pregunta actual**, una de estas preguntas podría explorar cómo su respuesta se alinea con su "Porqué" general (la razón fundamental de su emprendimiento). Ejemplo: "Excelente. Y pensando en esa [su respuesta específica], ¿cómo crees que esto refuerza o comunica el 'Porqué' principal de {nombre_emprendimiento if nombre_emprendimiento else 'tu proyecto'}?"
+        *   Otras preguntas de profundización podrían ser: "¿Qué desafíos prevés al implementar esto que mencionas?" o "¿Cómo medirías el éxito de esta parte de tu plan?"
 
-**Importante:**
-- Si la respuesta del emprendedor es particularmente clara, profunda y bien alineada con los principios, puedes felicitarlo brevemente antes de tu pregunta de seguimiento. Ejemplo: "Excelente reflexión, {nombre_emprendedor if nombre_emprendedor else 'Emprendedor/a'}. Es evidente que has pensado profundamente en [aspecto positivo]. Para llevarlo aún más lejos, ¿has considerado...?" o "Muy bien articulado. Se nota la conexión con [principio]. Ahora, ¿cómo podríamos explorar...?"
-- Si la respuesta está muy incompleta o no es clara, tu pregunta principal debe ser una solicitud de clarificación o elaboración. No intentes analizar algo que no está ahí.
+**Estilo General Constante:**
+*   Amigable, paciente, claro, como un mentor joven.
+*   Positivo y alentador.
+*   Evita jerga.
+*   **Enfócate en la pregunta actual.** El "Porqué" es un trasfondo, no el tema de cada respuesta.
 
-Ahora, analiza la respuesta proporcionada y genera tu feedback y preguntas de seguimiento para {nombre_emprendedor if nombre_emprendedor else 'el emprendedor'}.
+Ahora, analiza la respuesta del usuario, la pregunta que se le hizo, y sigue las instrucciones (A, B, o C) para generar tu feedback y pregunta(s).
     """
     try:
         messages = [HumanMessage(content=prompt_consultor)]
         ai_response = llm.invoke(messages)
         return ai_response.content
     except Exception as e:
-        print(f"Error en llamada a Gemini API: {e}") 
+        print(f"Error en llamada a Gemini API: {e}")
         if "quota" in str(e).lower():
             return "Se ha excedido la cuota de uso gratuito de la IA. Por favor, inténtalo más tarde."
         return f"Hubo un error al procesar tu respuesta con la IA. El equipo técnico ha sido notificado."
@@ -132,12 +137,9 @@ Ahora, analiza la respuesta proporcionada y genera tu feedback y preguntas de se
 def main():
     global llm, _llm_initialization_error, GOOGLE_API_KEY, model_name_to_use, IS_STREAMLIT_CLOUD
 
-    if not tw: 
-        st.error("El componente st_tailwind no se pudo importar. Por favor, instálalo: pip install st-tailwind")
-        st.stop()
+    local_css("static/style.css")
 
-    tw.initialize_tailwind()
-
+    # --- INICIALIZACIÓN DE SESSION_STATE ---
     if 'nombre_emprendimiento' not in st.session_state: st.session_state.nombre_emprendimiento = ""
     if 'nombre_emprendedor' not in st.session_state: st.session_state.nombre_emprendedor = ""
     if 'info_inicial_guardada' not in st.session_state: st.session_state.info_inicial_guardada = False
@@ -146,12 +148,11 @@ def main():
     if 'feedback_consultor' not in st.session_state: st.session_state.feedback_consultor = {}
     if 'volver_a_resumen_despues_de_editar' not in st.session_state: st.session_state.volver_a_resumen_despues_de_editar = False
     if 'editando_pregunta_id' not in st.session_state: st.session_state.editando_pregunta_id = None
+    if 'edit_counts' not in st.session_state: st.session_state.edit_counts = {}
 
-    # --- Manejo de errores de configuración de LLM y API Key ---
-    # Comprobamos si la API Key se cargó correctamente y si el LLM se inicializó.
+    # --- Manejo de errores de configuración ---
     if not GOOGLE_API_KEY:
         st.sidebar.error("API Key de Google no configurada.")
-        # Solo muestra el error principal si el usuario aún no ha comenzado.
         if not st.session_state.info_inicial_guardada:
             mensaje_error_api_key = "CONFIGURACIÓN REQUERIDA: La API Key de Google no está configurada. La funcionalidad de IA estará desactivada. "
             if IS_STREAMLIT_CLOUD:
@@ -159,182 +160,196 @@ def main():
             else:
                 mensaje_error_api_key += "Por favor, asegúrate de que tu archivo .env local está correctamente configurado con GOOGLE_API_KEY."
             st.error(mensaje_error_api_key)
-    elif not llm: # API Key podría estar, pero LLM no se inicializó
+    elif not llm:
         if _llm_initialization_error:
             st.sidebar.error("Error al inicializar Gemini.")
             st.error(f"ERROR DE IA: No se pudo inicializar el modelo Gemini. Detalles: {_llm_initialization_error}")
-        else: # Caso genérico si llm es None sin error específico (poco probable si API key está)
+        else:
             st.sidebar.error("Modelo Gemini no disponible.")
             st.error("ERROR DE IA: El modelo de lenguaje no está disponible.")
-    else: # Todo OK con la IA
+    else:
         st.sidebar.success(f"Conectado a: {model_name_to_use}")
-    
+
     # --- Flujo de la aplicación ---
     if not st.session_state.info_inicial_guardada:
-        with tw.container(classes="p-6 md:p-8 max-w-xl mx-auto bg-white rounded-xl shadow-xl mt-10"):
-            tw.write("👋 ¡Bienvenido/a Emprendedor/a!", classes="text-2xl font-bold text-primario-app mb-4")
-            tw.write("Antes de comenzar, por favor indícanos un poco sobre ti y tu proyecto:", classes="text-texto-secundario mb-6")
-            
-            nombre_emp_input = st.text_input(
-                "Nombre de tu Emprendimiento:",
-                value=st.session_state.get("nombre_emprendimiento_temp", ""),
-                key="nombre_emp_input_key"
-            )
-            nombre_emprendedor_input = st.text_input(
-                "Tu Nombre:",
-                value=st.session_state.get("nombre_emprendedor_temp", ""),
-                key="nombre_emprendedor_input_key"
-            )
+        st.markdown("<div class='p-6 md:p-8 max-w-xl mx-auto bg-fondo-contenedor rounded-xl shadow-xl mt-10 border border-borde-contenedor'>", unsafe_allow_html=True)
+        st.markdown("<h1 class='text-2xl font-bold text-primario-app mb-4'>👋 ¡Bienvenido/a Emprendedor/a!</h1>", unsafe_allow_html=True)
+        st.markdown("<p class='text-texto-secundario mb-6'>Antes de comenzar, por favor indícanos un poco sobre ti y tu proyecto:</p>", unsafe_allow_html=True)
 
-            if tw.button("Comenzar Consultoría", key="comenzar_btn", classes="w-full bg-acento-app hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg focus:outline-none focus:shadow-outline text-lg"):
-                if nombre_emp_input.strip() and nombre_emprendedor_input.strip():
-                    st.session_state.nombre_emprendimiento = nombre_emp_input.strip()
-                    st.session_state.nombre_emprendedor = nombre_emprendedor_input.strip()
-                    st.session_state.info_inicial_guardada = True
-                    st.session_state.pregunta_actual_idx = 0
-                    st.session_state.respuestas = {}
-                    st.session_state.feedback_consultor = {}
-                    st.session_state.editando_pregunta_id = None 
-                    st.session_state.volver_a_resumen_despues_de_editar = False 
-                    st.rerun()
-                else:
-                    st.warning("Por favor, completa ambos campos para continuar.")
+        nombre_emp_input = st.text_input(
+            "Nombre de tu Emprendimiento:",
+            value=st.session_state.get("nombre_emprendimiento_temp", ""),
+            key="nombre_emp_input_key"
+        )
+        nombre_emprendedor_input = st.text_input(
+            "Tu Nombre:",
+            value=st.session_state.get("nombre_emprendedor_temp", ""),
+            key="nombre_emprendedor_input_key"
+        )
+
+        if st.button("Comenzar Consultoría", key="comenzar_btn_manual", type="primary", use_container_width=True):
+            if nombre_emp_input.strip() and nombre_emprendedor_input.strip():
+                st.session_state.nombre_emprendimiento = nombre_emp_input.strip()
+                st.session_state.nombre_emprendedor = nombre_emprendedor_input.strip()
+                st.session_state.info_inicial_guardada = True
+                st.session_state.pregunta_actual_idx = 0
+                st.session_state.respuestas = {}
+                st.session_state.feedback_consultor = {}
+                st.session_state.edit_counts = {}
+                st.session_state.editando_pregunta_id = None
+                st.session_state.volver_a_resumen_despues_de_editar = False
+                st.rerun()
+            else:
+                st.warning("Por favor, completa ambos campos para continuar.")
+        st.markdown("</div>", unsafe_allow_html=True)
         return
 
-    with tw.container(classes="max-w-4xl mx-auto p-4 md:p-6"):
-        titulo_texto_visible = "🚀 Asistente para Emprendedores Exitosos"
-        if st.session_state.nombre_emprendimiento:
-            titulo_texto_visible = f"🚀 Asistente para {st.session_state.nombre_emprendimiento}"
-        
-        tw.write(titulo_texto_visible, classes="text-3xl lg:text-4xl font-bold text-primario-app my-6 text-center")
+    st.markdown("<div class='max-w-4xl mx-auto p-4 md:p-6'>", unsafe_allow_html=True)
 
-        saludo_html_texto_main = f"""
-        Hola <strong class="font-semibold text-primario-app">{st.session_state.get('nombre_emprendedor', 'Emprendedor/a')}</strong>. Esta plataforma te guiará, con el apoyo de un consultor IA especializado,
-        a través de preguntas clave para desarrollar y refinar los objetivos de tu empresa.
-        Nos basaremos en los principios de <em class="italic">Empieza con el Porqué</em> (Simon Sinek) y <em class="italic">Built to Last</em> (Jim Collins & Jerry Porras).
-        """
-        st.markdown(f"<p class='text-lg text-texto-secundario mb-8 text-center'>{saludo_html_texto_main}</p>", unsafe_allow_html=True)
+    titulo_texto_visible = "🚀 Asistente para Emprendedores Exitosos"
+    if st.session_state.nombre_emprendimiento:
+        titulo_texto_visible = f"🚀 Asistente para {st.session_state.nombre_emprendimiento}"
 
-        if st.session_state.volver_a_resumen_despues_de_editar:
-            st.session_state.pregunta_actual_idx = len(preguntas_emprendimiento)
-            st.session_state.volver_a_resumen_despues_de_editar = False
-            st.session_state.editando_pregunta_id = None 
+    st.markdown(f"<h1 class='text-3xl lg:text-4xl font-bold text-primario-app my-6 text-center'>{titulo_texto_visible}</h1>", unsafe_allow_html=True)
 
-        idx_pregunta_actual = st.session_state.pregunta_actual_idx
+    saludo_html_texto_main = f"""
+    Hola <strong class="font-semibold text-primario-app">{st.session_state.get('nombre_emprendedor', 'Emprendedor/a')}</strong>. Esta plataforma te guiará, con el apoyo de un consultor IA especializado,
+    a través de preguntas clave para desarrollar y refinar los objetivos de tu empresa.
+    Nos basaremos en el principio de <em class="italic text-texto-secundario">"Empezar con el Porqué"</em> de Simon Sinek.
+    """
+    st.markdown(f"<p class='text-lg text-texto-secundario mb-8 text-center'>{saludo_html_texto_main}</p>", unsafe_allow_html=True)
 
-        if idx_pregunta_actual < len(preguntas_emprendimiento):
-            pregunta_actual_obj = preguntas_emprendimiento[idx_pregunta_actual]
-            
-            with tw.container(classes="p-6 md:p-8 bg-white rounded-xl shadow-lg mb-10"):
-                tw.write(f"Pregunta {pregunta_actual_obj['id']}/{len(preguntas_emprendimiento)}: {pregunta_actual_obj['texto']}",
-                         classes="text-xl md:text-2xl font-semibold text-primario-app mb-3")
-                tw.write(pregunta_actual_obj['detalle'], classes="text-sm text-texto-secundario mb-6 italic")
+    if st.session_state.volver_a_resumen_despues_de_editar:
+        st.session_state.pregunta_actual_idx = len(preguntas_emprendimiento)
+        st.session_state.volver_a_resumen_despues_de_editar = False
+        st.session_state.editando_pregunta_id = None
 
-                respuesta_guardada = st.session_state.respuestas.get(pregunta_actual_obj['id'], "")
-                respuesta_usuario_input = st.text_area(
-                    "Tu respuesta:", value=str(respuesta_guardada), height=180,
-                    key=f"respuesta_q{pregunta_actual_obj['id']}",
-                    help="Escribe tu respuesta aquí y luego presiona 'Siguiente Pregunta'."
-                )
+    idx_pregunta_actual = st.session_state.pregunta_actual_idx
 
-                if pregunta_actual_obj['id'] in st.session_state.feedback_consultor:
-                    feedback_msg = st.session_state.feedback_consultor[pregunta_actual_obj['id']]
-                    container_classes = "p-4 mt-4 rounded-lg "
-                    if feedback_msg.startswith("Se ha excedido la cuota"):
-                        st.warning(feedback_msg)
-                    elif feedback_msg.startswith(("Hubo un error", "Error:", "El servicio de IA no está disponible")):
-                        st.error(feedback_msg)
-                    elif feedback_msg == "Veo que no has ingresado una respuesta aún. Tómate tu tiempo para reflexionar sobre esta pregunta. ¿Qué ideas iniciales te vienen a la mente?":
-                         with st.chat_message("ai", avatar="🧑‍🏫"):
-                             tw.write(feedback_msg, classes=container_classes + "bg-yellow-100 text-yellow-800 border border-yellow-300")
-                    elif feedback_msg != "No se proporcionó respuesta para analizar.":
-                         with st.chat_message("ai", avatar="🧑‍🏫"):
-                             tw.write(feedback_msg, classes=container_classes + "bg-feedback-info-bg text-feedback-info-text border border-blue-200")
+    if idx_pregunta_actual < len(preguntas_emprendimiento):
+        pregunta_actual_obj = preguntas_emprendimiento[idx_pregunta_actual]
+        q_id = pregunta_actual_obj['id']
+
+        st.markdown("<div class='p-6 md:p-8 bg-fondo-contenedor rounded-xl shadow-lg mb-10 border border-borde-contenedor'>", unsafe_allow_html=True)
+
+        st.markdown(f"<h2 class='text-xl md:text-2xl font-semibold text-primario-app mb-1'>Pregunta {q_id}/{len(preguntas_emprendimiento)}:</h2>", unsafe_allow_html=True)
+        st.markdown(f"<h3 class='text-lg md:text-xl text-texto-principal mb-3'>{pregunta_actual_obj['texto']}</h3>", unsafe_allow_html=True)
+        st.markdown(f"<p class='text-sm text-texto-secundario mb-6 italic'>{pregunta_actual_obj['detalle']}</p>", unsafe_allow_html=True)
+
+        respuesta_guardada = st.session_state.respuestas.get(q_id, "")
+        respuesta_usuario_input = st.text_area(
+            "Tu respuesta:", value=str(respuesta_guardada), height=180,
+            key=f"respuesta_q{q_id}",
+            help="Escribe tu respuesta aquí y luego presiona 'Siguiente Pregunta'."
+        )
+
+        if q_id in st.session_state.feedback_consultor:
+            feedback_msg = st.session_state.feedback_consultor[q_id]
+            if feedback_msg.startswith("Se ha excedido la cuota"):
+                st.warning(feedback_msg)
+            elif feedback_msg.startswith(("Hubo un error", "Error:", "El servicio de IA no está disponible")):
+                st.error(feedback_msg)
+            elif feedback_msg == "Veo que no has ingresado una respuesta aún. Tómate tu tiempo para reflexionar sobre esta pregunta. ¿Qué ideas iniciales te vienen a la mente?":
+                 with st.chat_message("ai", avatar="🧑‍🏫"):
+                     st.markdown(f"<div class='p-4 mt-4 rounded-lg bg-yellow-100 text-yellow-800 border border-yellow-300 shadow'>{feedback_msg}</div>", unsafe_allow_html=True)
+            elif feedback_msg.startswith("¡Gracias por tu esfuerzo y dedicación"):
+                with st.chat_message("ai", avatar="🎉"):
+                    st.markdown(f"<div class='p-4 mt-4 rounded-lg bg-green-100 text-green-800 border border-green-300 shadow'>{feedback_msg}</div>", unsafe_allow_html=True)
+            elif feedback_msg != "No se proporcionó respuesta para analizar.":
+                 with st.chat_message("ai", avatar="🧑‍🏫"):
+                     st.markdown(f"<div class='p-4 mt-4 rounded-lg bg-feedback-info-bg text-feedback-info-text border border-blue-200 shadow'>{feedback_msg}</div>", unsafe_allow_html=True)
 
 
-                if tw.button("Siguiente Pregunta ❯", key=f"siguiente_q{pregunta_actual_obj['id']}",
-                             classes="mt-6 w-full md:w-auto bg-acento-app hover:bg-blue-700 text-white font-semibold py-3 px-8 rounded-lg focus:outline-none focus:shadow-outline text-md"):
-                    respuesta_actual_procesada = respuesta_usuario_input.strip()
-                    st.session_state.respuestas[pregunta_actual_obj['id']] = respuesta_actual_procesada
-                    
-                    feedback_obtenido = ""
-                    if llm and GOOGLE_API_KEY:
-                        if respuesta_actual_procesada:
-                            with st.spinner("El consultor IA está reflexionando sobre tu respuesta..."):
-                                feedback_obtenido = obtener_feedback_gemini(
-                                    pregunta_actual_obj['texto'],
-                                    respuesta_actual_procesada,
-                                    st.session_state.nombre_emprendimiento,
-                                    st.session_state.nombre_emprendedor
-                                )
-                        else:
-                            feedback_obtenido = "Veo que no has ingresado una respuesta aún. Tómate tu tiempo para reflexionar sobre esta pregunta. ¿Qué ideas iniciales te vienen a la mente?"
-                    elif not respuesta_actual_procesada:
-                         feedback_obtenido = "Veo que no has ingresado una respuesta aún. Tómate tu tiempo para reflexionar sobre esta pregunta. ¿Qué ideas iniciales te vienen a la mente?"
-                    else:
-                        feedback_obtenido = "El servicio de IA no está disponible para dar feedback en este momento."
-                    
-                    st.session_state.feedback_consultor[pregunta_actual_obj['id']] = feedback_obtenido
+        if st.button("Siguiente Pregunta ❯", key=f"siguiente_q_manual{q_id}", type="primary", use_container_width=True):
+            respuesta_actual_procesada = respuesta_usuario_input.strip()
+            st.session_state.respuestas[q_id] = respuesta_actual_procesada
 
-                    if st.session_state.editando_pregunta_id is not None:
-                        st.session_state.volver_a_resumen_despues_de_editar = True
-                    else:
-                         st.session_state.pregunta_actual_idx += 1
-                    st.rerun()
-        else: 
-            st.success(f"¡Excelente trabajo, {st.session_state.get('nombre_emprendedor', 'Emprendedor/a')}! Has completado todas las preguntas iniciales para {st.session_state.get('nombre_emprendimiento', 'tu emprendimiento')}.")
-            st.balloons()
-            
-            tw.write(f"Resumen para {st.session_state.get('nombre_emprendimiento', 'tu Emprendimiento')}:",
-                     classes="text-2xl lg:text-3xl font-bold text-primario-app mt-8 mb-6 text-center")
+            edit_count_for_this_q = st.session_state.edit_counts.get(q_id, 0)
+            feedback_obtenido = ""
 
-            if not st.session_state.respuestas:
-                st.warning("Aún no has respondido ninguna pregunta.")
+            if llm and GOOGLE_API_KEY:
+                with st.spinner("El consultor IA está reflexionando sobre tu respuesta..."):
+                    feedback_obtenido = obtener_feedback_gemini(
+                        pregunta_actual_obj['texto'],
+                        pregunta_actual_obj['detalle'], 
+                        respuesta_actual_procesada,
+                        st.session_state.nombre_emprendimiento,
+                        st.session_state.nombre_emprendedor,
+                        edit_count_for_this_q
+                    )
+            elif not respuesta_actual_procesada:
+                 feedback_obtenido = "Veo que no has ingresado una respuesta aún. Tómate tu tiempo para reflexionar sobre esta pregunta. ¿Qué ideas iniciales te vienen a la mente?"
             else:
-                for i, pregunta_info in enumerate(preguntas_emprendimiento):
-                    with tw.container(classes="p-6 mb-6 bg-white rounded-xl shadow-lg"):
-                        respuesta = st.session_state.respuestas.get(pregunta_info['id'], "*No respondida*")
-                        feedback = st.session_state.feedback_consultor.get(pregunta_info['id'], "*Sin feedback aún.*")
+                feedback_obtenido = "El servicio de IA no está disponible para dar feedback en este momento."
 
-                        tw.write(f"{pregunta_info['id']}. {pregunta_info['texto']}",
-                                 classes=f"text-lg font-semibold text-primario-app mb-2")
-                        st.markdown(f"<blockquote class='pl-4 italic border-l-4 border-gray-300 my-3 text-texto-secundario bg-gray-50 p-3 rounded-r-md'>{respuesta if respuesta.strip() else '*No respondida*'}</blockquote>", unsafe_allow_html=True)
-                        
-                        container_classes_resumen = "p-3 mt-3 rounded-lg "
-                        if feedback != "*Sin feedback aún.*" and \
-                           feedback != "No se proporcionó respuesta para analizar." and \
-                           feedback != "El servicio de IA no está disponible para dar feedback en este momento.":
-                             if feedback.startswith("Se ha excedido la cuota"):
-                                st.warning(f"*Nota del sistema:* {feedback}")
-                             elif feedback.startswith("Hubo un error") or feedback.startswith("Error:"):
-                                st.error(f"*Nota del sistema:* {feedback}")
-                             elif feedback == "Veo que no has ingresado una respuesta aún. Tómate tu tiempo para reflexionar sobre esta pregunta. ¿Qué ideas iniciales te vienen a la mente?":
-                                with st.chat_message("ai", avatar="🧑‍🏫"):
-                                    tw.write(feedback, classes=container_classes_resumen + "bg-yellow-100 text-yellow-800 border border-yellow-300")
-                             else:
-                                with st.chat_message("ai", avatar="🧑‍🏫"):
-                                    tw.write(f"<span class='font-semibold'>Reflexión del Consultor IA:</span><br>{feedback}", classes=container_classes_resumen + "bg-feedback-info-bg text-feedback-info-text border border-blue-200")
-                        
-                        if tw.button(f"✏️ Editar Respuesta", key=f"edit_btn_{pregunta_info['id']}",
-                                     classes="mt-4 text-sm bg-gray-100 hover:bg-gray-200 text-acento-app font-semibold py-2 px-4 border border-gray-300 rounded-md"):
-                            st.session_state.pregunta_actual_idx = i
-                            st.session_state.editando_pregunta_id = pregunta_info['id']
-                            st.session_state.volver_a_resumen_despues_de_editar = False
-                            st.rerun()
-                    if i < len(preguntas_emprendimiento) -1 :
-                        st.markdown("<div class='h-px bg-gray-200 my-6'></div>", unsafe_allow_html=True)
-            
-            with tw.container(classes="mt-10 text-center"):
-                if tw.button("🏁 Completado y Conforme",
-                            classes="w-auto bg-exito-app hover:bg-green-700 text-white font-bold py-3 px-8 rounded-lg text-lg"):
-                    st.info("¡Genial! Has sentado una base sólida. En futuros módulos podremos profundizar aún más.")
+            st.session_state.feedback_consultor[q_id] = feedback_obtenido
 
-                if tw.button("🔄 Reiniciar Todo el Cuestionario",
-                            classes="mt-4 w-auto bg-peligro-app hover:bg-red-700 text-white font-bold py-3 px-8 rounded-lg text-lg"):
-                    keys_to_delete = list(st.session_state.keys())
-                    for key in keys_to_delete:
-                        del st.session_state[key]
-                    st.rerun()
+            if st.session_state.editando_pregunta_id is not None:
+                st.session_state.volver_a_resumen_despues_de_editar = True
+            else:
+                 st.session_state.pregunta_actual_idx += 1
+            st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+    else:
+        st.success(f"¡Excelente trabajo, {st.session_state.get('nombre_emprendedor', 'Emprendedor/a')}! Has completado todas las preguntas iniciales para {st.session_state.get('nombre_emprendimiento', 'tu emprendimiento')}.")
+        st.balloons()
+
+        st.markdown(f"<h2 class='text-2xl lg:text-3xl font-bold text-primario-app mt-8 mb-6 text-center'>Resumen para {st.session_state.get('nombre_emprendimiento', 'tu Emprendimiento')}:</h2>", unsafe_allow_html=True)
+
+        if not st.session_state.respuestas:
+            st.warning("Aún no has respondido ninguna pregunta.")
+        else:
+            for i, pregunta_info in enumerate(preguntas_emprendimiento):
+                q_id_resumen = pregunta_info['id']
+                st.markdown("<div class='p-6 mb-6 bg-fondo-contenedor rounded-xl shadow-lg border border-borde-contenedor'>", unsafe_allow_html=True)
+                respuesta = st.session_state.respuestas.get(q_id_resumen, "*No respondida*")
+                feedback = st.session_state.feedback_consultor.get(q_id_resumen, "*Sin feedback aún.*")
+
+                st.markdown(f"<h3 class='text-lg font-semibold text-primario-app mb-1'>{q_id_resumen}. {pregunta_info['texto']}</h3>", unsafe_allow_html=True)
+                st.markdown(f"<blockquote class='pl-4 italic border-l-4 border-borde-contenedor my-3 text-texto-secundario bg-gray-50 p-3 rounded-r-md'>{respuesta if respuesta.strip() else '*No respondida*'}</blockquote>", unsafe_allow_html=True)
+
+                if feedback != "*Sin feedback aún.*" and \
+                   feedback != "No se proporcionó respuesta para analizar." and \
+                   feedback != "El servicio de IA no está disponible para dar feedback en este momento.":
+                     if feedback.startswith("Se ha excedido la cuota"):
+                        st.warning(f"*Nota del sistema:* {feedback}")
+                     elif feedback.startswith("Hubo un error") or feedback.startswith("Error:"):
+                        st.error(f"*Nota del sistema:* {feedback}")
+                     elif feedback == "Veo que no has ingresado una respuesta aún. Tómate tu tiempo para reflexionar sobre esta pregunta. ¿Qué ideas iniciales te vienen a la mente?":
+                        with st.chat_message("ai", avatar="🧑‍🏫"):
+                            st.markdown(f"<div class='p-3 mt-2 rounded-lg bg-yellow-100 text-yellow-800 border border-yellow-300 shadow'>{feedback}</div>", unsafe_allow_html=True)
+                     elif feedback.startswith("¡Gracias por tu esfuerzo y dedicación"):
+                        with st.chat_message("ai", avatar="🎉"):
+                            st.markdown(f"<div class='p-3 mt-2 rounded-lg bg-green-100 text-green-800 border border-green-300 shadow'>{feedback}</div>", unsafe_allow_html=True)
+                     else:
+                        with st.chat_message("ai", avatar="🧑‍🏫"):
+                            st.markdown(f"<div class='p-3 mt-2 rounded-lg bg-feedback-info-bg text-feedback-info-text border border-blue-200 shadow'><strong class='font-medium'>Reflexión del Consultor IA:</strong><br>{feedback}</div>", unsafe_allow_html=True)
+
+                cols_edit_button = st.columns([0.8, 0.2])
+                with cols_edit_button[0]:
+                    if st.button(f"✏️ Editar Respuesta", key=f"edit_btn_manual_{q_id_resumen}", use_container_width=True):
+                        st.session_state.edit_counts[q_id_resumen] = st.session_state.edit_counts.get(q_id_resumen, 0) + 1
+                        st.session_state.pregunta_actual_idx = i
+                        st.session_state.editando_pregunta_id = q_id_resumen
+                        st.session_state.volver_a_resumen_despues_de_editar = False
+                        st.rerun()
+                with cols_edit_button[1]:
+                    edit_count_for_q = st.session_state.edit_counts.get(q_id_resumen, 0)
+                    if edit_count_for_q > 0:
+                        st.markdown(f"<p class='text-xs text-gray-500 text-right pt-2'>Editado: {edit_count_for_q} {'vez' if edit_count_for_q == 1 else 'veces'}</p>", unsafe_allow_html=True)
+                st.markdown("</div>", unsafe_allow_html=True)
+                if i < len(preguntas_emprendimiento) -1 :
+                    st.markdown("<div class='h-px bg-borde-contenedor my-6'></div>", unsafe_allow_html=True)
+
+            st.markdown("<div class='mt-10 text-center space-y-4 md:space-y-0 md:flex md:justify-center md:space-x-4'>", unsafe_allow_html=True)
+            if st.button("🏁 Completado y Conforme", type="primary", key="completado_final_manual"):
+                st.info("¡Genial! Has sentado una base sólida. En futuros módulos podremos profundizar aún más.")
+            if st.button("🔄 Reiniciar Todo el Cuestionario", key="reiniciar_final_manual"):
+                keys_to_delete = list(st.session_state.keys())
+                for key in keys_to_delete: del st.session_state[key]
+                st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()

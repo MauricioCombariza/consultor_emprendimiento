@@ -1,0 +1,14 @@
+/* src/input.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* (Opcional) Importar una fuente web si la usas en tailwind.config.js */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+body {
+  font-family: theme('fontFamily.sans'); /* Aplicar la fuente sans-serif definida en el config */
+  color: theme('colors.texto-principal'); /* Color de texto base */
+  -webkit-font-smoothing: antialiased; /* Mejor renderizado de fuentes */
+  -moz-osx-font-smoothing: grayscale;
+}

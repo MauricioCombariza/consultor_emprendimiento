@@ -19,6 +19,7 @@ module.exports = {
         // Puedes añadir más colores si los necesitas
         'peligro-app': '#D32F2F', // Ejemplo para errores o alertas
         'exito-app': '#388E3C',   // Ejemplo para mensajes de éxito
+        'test-debug-color': '#FF00FF',
       },
       fontFamily: {
         // Si quieres usar una fuente específica y la tienes configurada
