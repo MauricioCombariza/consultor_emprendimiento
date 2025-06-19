@@ -49,7 +49,7 @@ if GOOGLE_API_KEY:
         llm = ChatGoogleGenerativeAI(
             model=model_name_to_use,
             google_api_key=GOOGLE_API_KEY,
-            temperature=0.5, # Ajustado para permitir algo de creatividad en ejemplos
+            temperature=0.6, 
         )
     except Exception as e:
         _llm_initialization_error = e
@@ -82,8 +82,9 @@ def obtener_feedback_gemini(texto_pregunta, detalle_pregunta, respuesta_usuario,
         else:
             return "Error: El modelo de lenguaje no está inicializado por una razón desconocida."
 
-    if edit_count >= 2:
-        return f"¡Gracias por tu esfuerzo y dedicación en esta pregunta, {nombre_emprendedor if nombre_emprendedor else 'Emprendedor/a'}! Has trabajado mucho en ella. Podemos continuar."
+    # AJUSTE: Si edit_count es 1 o más, agradecer y no hacer más preguntas.
+    if edit_count >= 1:
+        return f"¡Gracias por tu esfuerzo y dedicación en esta pregunta, {nombre_emprendedor if nombre_emprendedor else 'Emprendedor/a'}! Has trabajado mucho en refinar tu respuesta. Podemos continuar."
 
     prompt_consultor = f"""
 Eres un consultor de emprendimientos muy amigable, paciente y extremadamente claro, como si estuvieras explicando conceptos de negocios a un amigo adolescente que está empezando. Tu objetivo principal es ayudarle a pensar con claridad y profundidad sobre cada aspecto de su idea.
@@ -97,30 +98,24 @@ Su respuesta ha sido: "{respuesta_usuario if respuesta_usuario.strip() else 'Par
 **Instrucciones para tu respuesta:**
 
 A. **SI LA RESPUESTA DEL USUARIO ES NULA O MUY CORTA (ej. "no sé", "vender cosas", menos de 2-3 palabras con sentido):**
-    1.  **Explica la Pregunta de Forma Sencilla:** Reformula la pregunta "{texto_pregunta}" en palabras muy simples. Explica qué tipo de información se busca con ella. Por ejemplo, si es sobre "Público Objetivo", explica qué significa eso.
+    1.  **Explica la Pregunta de Forma Sencilla:** Reformula la pregunta "{texto_pregunta}" en palabras muy simples. Explica qué tipo de información se busca con ella, usando el detalle "{detalle_pregunta}" como guía.
     2.  **DA 2-3 EJEMPLOS CONCRETOS Y SENCILLOS** relevantes para la pregunta "{texto_pregunta}". Estos ejemplos deben ilustrar respuestas claras y bien pensadas a ESA PREGUNTA.
-        *   Ejemplo para "¿Quién es tu público objetivo?": "Imagina que quieres vender patinetas. Un público podrían ser chicos y chicas de 13 a 18 años que aman el skate y buscan productos duraderos y con estilo. Otro podría ser adultos jóvenes que usan la patineta para moverse por la ciudad y buscan algo ligero y práctico. ¿Ves cómo son diferentes?"
-    3.  **Pregunta Guía:** Termina con una pregunta amable que invite al usuario a pensar en su propia situación basándose en la explicación y los ejemplos. Ejemplo: "Pensando en tu idea de {nombre_emprendimiento if nombre_emprendimiento else 'tu proyecto'}, ¿quiénes crees que serían las personas más interesadas en lo que ofreces? ¿Cómo son?"
+    3.  **Pregunta Guía:** Termina con una pregunta amable que invite al usuario a pensar en su propia situación basándose en la explicación y los ejemplos.
 
 B. **SI LA RESPUESTA DEL USUARIO ES SUPERFICIAL O GENERAL (ej. tiene algunas palabras pero no profundiza, no es específica):**
     1.  **Reconocimiento Positivo:** Empieza con algo como: "¡Entendido! Mencionas que [resume brevemente su respuesta]. Es un buen punto de partida."
-    2.  **Explicación de por qué se necesita más detalle PARA ESA PREGUNTA:** "Para que esta parte de tu plan sea realmente fuerte, ayuda mucho si somos un poco más específicos. Por ejemplo, si la pregunta es sobre 'Propuesta de Valor' y dices 'dar un buen servicio', eso es genial, pero muchas empresas intentan hacer eso."
-    3.  **DA UN EJEMPLO CONCRETO de una respuesta más detallada o específica PARA LA PREGUNTA "{texto_pregunta}"**: "Una propuesta de valor más específica podría ser 'Ofrecemos el único servicio de reparación de bicicletas en el barrio que te devuelve la bici el mismo día y con una garantía de 30 días, porque entendemos que necesitas tu bici funcionando ya'. ¿Notas la diferencia en el detalle?"
-    4.  **Pregunta Guía Específica:** Haz una pregunta que le ayude a añadir ese nivel de detalle o especificidad a SU respuesta actual. Ejemplo: "Volviendo a tu idea de [su respuesta], ¿qué detalles podrías añadir para que alguien entienda exactamente qué te hace diferente o especial en este punto?"
-    5.  **(Opcional, si aplica y la pregunta lo permite) Conexión Sutil al "Porqué":** "A veces, pensar en tu 'Porqué' principal te puede ayudar a encontrar esos detalles. Si tu 'Porqué' es [ejemplo de porqué], ¿cómo se reflejaría eso en tu respuesta a '{texto_pregunta}'?" (Usa esto con moderación y solo si encaja naturalmente).
+    2.  **Explicación de por qué se necesita más detalle PARA ESA PREGUNTA:** "Para que esta parte de tu plan sea realmente fuerte, ayuda mucho si somos un poco más específicos."
+    3.  **DA UN EJEMPLO CONCRETO de una respuesta más detallada o específica PARA LA PREGUNTA "{texto_pregunta}"**, usando el detalle "{detalle_pregunta}".
+    4.  **Pregunta Guía Específica:** Haz una pregunta que le ayude a añadir ese nivel de detalle o especificidad a SU respuesta actual.
+    5.  **(Opcional, si aplica y la pregunta lo permite) Conexión Sutil al "Porqué":** "A veces, pensar en tu 'Porqué' principal te puede ayudar a encontrar esos detalles." (Usa esto con moderación).
 
 C. **SI LA RESPUESTA DEL USUARIO ES BUENA, DETALLADA O BIEN ENCAMINADA:**
-    1.  **Felicitación Específica:** "¡Muy bien, {nombre_emprendedor if nombre_emprendedor else 'crack'}! Me gusta mucho cómo has explicado [menciona algo específico y positivo de su respuesta]. Se nota que le has dado vueltas."
+    1.  **Felicitación Específica:** "¡Muy bien, {nombre_emprendedor if nombre_emprendedor else 'crack'}! Me gusta mucho cómo has explicado [menciona algo específico y positivo de su respuesta]."
     2.  **1 o 2 Preguntas de Profundización RELEVANTES A LA PREGUNTA ACTUAL:**
         *   Estas preguntas deben buscar más claridad, implicaciones o los siguientes pasos relacionados con lo que acaba de responder.
-        *   **Solo si es natural y relevante para la pregunta actual**, una de estas preguntas podría explorar cómo su respuesta se alinea con su "Porqué" general (la razón fundamental de su emprendimiento). Ejemplo: "Excelente. Y pensando en esa [su respuesta específica], ¿cómo crees que esto refuerza o comunica el 'Porqué' principal de {nombre_emprendimiento if nombre_emprendimiento else 'tu proyecto'}?"
-        *   Otras preguntas de profundización podrían ser: "¿Qué desafíos prevés al implementar esto que mencionas?" o "¿Cómo medirías el éxito de esta parte de tu plan?"
+        *   **Solo si es natural y relevante para la pregunta actual**, una de estas preguntas podría explorar cómo su respuesta se alinea con su "Porqué" general.
 
-**Estilo General Constante:**
-*   Amigable, paciente, claro, como un mentor joven.
-*   Positivo y alentador.
-*   Evita jerga.
-*   **Enfócate en la pregunta actual.** El "Porqué" es un trasfondo, no el tema de cada respuesta.
+**Estilo General Constante:** Amigable, paciente, claro, positivo, alentador, evita jerga, enfócate en la pregunta actual.
 
 Ahora, analiza la respuesta del usuario, la pregunta que se le hizo, y sigue las instrucciones (A, B, o C) para generar tu feedback y pregunta(s).
     """
@@ -133,6 +128,78 @@ Ahora, analiza la respuesta del usuario, la pregunta que se le hizo, y sigue las
         if "quota" in str(e).lower():
             return "Se ha excedido la cuota de uso gratuito de la IA. Por favor, inténtalo más tarde."
         return f"Hubo un error al procesar tu respuesta con la IA. El equipo técnico ha sido notificado."
+
+
+def generar_resumen_y_pitch(respuestas_dict, preguntas_lista, nombre_emprendimiento, nombre_emprendedor):
+    global llm, _llm_initialization_error
+    if not llm:
+        if _llm_initialization_error: return f"Error al inicializar el modelo de IA: {_llm_initialization_error}"
+        elif not GOOGLE_API_KEY: return "Error: API Key de Google no configurada para resumen/pitch."
+        return "Error: El modelo de lenguaje no está disponible para generar el resumen y pitch."
+
+    texto_respuestas_formateado = "Información clave del emprendimiento:\n"
+    for pregunta_obj in preguntas_lista:
+        q_id = pregunta_obj["id"]
+        q_texto = pregunta_obj["texto"]
+        respuesta_usuario = respuestas_dict.get(q_id, "").strip()
+        if respuesta_usuario and respuesta_usuario.lower() != "no respondida.":
+            texto_respuestas_formateado += f"- Para la pregunta '{q_texto}', la respuesta fue: {respuesta_usuario}\n"
+    
+    if len(texto_respuestas_formateado) < 100: # Aumentar un poco el umbral
+        return "No hay suficiente información en tus respuestas para generar un resumen detallado y un pitch. Por favor, completa más preguntas de forma detallada."
+
+    prompt_resumen_pitch = f"""
+Eres un consultor de negocios y redactor experto, especializado en crear narrativas convincentes para emprendimientos. Tu tono es claro, profesional pero amigable, y muy persuasivo.
+Estás ayudando a {nombre_emprendedor if nombre_emprendedor else 'un emprendedor'} a articular la esencia de su proyecto llamado "{nombre_emprendimiento if nombre_emprendimiento else 'su emprendimiento'}".
+
+A continuación, se presenta la información clave recopilada a través de un cuestionario:
+{texto_respuestas_formateado}
+
+**TAREA PRINCIPAL: RESUMEN EJECUTIVO DETALLADO**
+
+Tu primera y más importante tarea es redactar un **Resumen Ejecutivo Detallado** para "{nombre_emprendimiento if nombre_emprendimiento else 'el proyecto'}".
+Este resumen debe:
+1.  Ser un texto narrativo fluido y coherente, no solo una lista de puntos.
+2.  Tener una extensión de aproximadamente 300-500 palabras.
+3.  Presentar una visión clara y completa de la empresa, como si se lo estuvieras explicando a un posible inversionista o socio estratégico.
+4.  Ser amigable, profesional y fácil de entender, evitando jerga innecesaria.
+5.  Integrar la información más relevante de TODAS las respuestas proporcionadas, creando una historia convincente sobre el negocio.
+6.  Cubrir aspectos clave como: El Problema u Oportunidad, La Solución/Idea de Negocio, Propuesta de Valor Única (su "Porqué" o diferenciador clave), Público Objetivo, Modelo de Negocio, Estrategia de Marketing/Promoción (ideas principales), y Visión a Futuro (si se infiere).
+7.  El "Porqué" o propósito fundamental del negocio (basado en Simon Sinek) debe ser un hilo conductor si la información lo permite, pero sin forzarlo si no es evidente.
+
+**TAREA SECUNDARIA: BORRADOR DE PITCH DE ELEVADOR (3 MINUTOS)**
+
+Después del Resumen Ejecutivo, crea un **Borrador de Pitch de Elevador**.
+Este pitch debe:
+1.  Ser más conversacional y directo.
+2.  Diseñado para ser entregado verbalmente en aproximadamente 3 minutos (alrededor de 400-450 palabras).
+3.  Seguir una estructura clara: Problema, Solución, Mercado, Modelo de Negocio, Equipo (si se infiere o asumir emprendedor apasionado), "Porqué" (si es fuerte), y una llamada a la acción o visión concisa.
+4.  Ser enérgico y memorable.
+
+**Formato de tu respuesta:**
+Utiliza Markdown para formatear tu respuesta. Separa claramente el Resumen Ejecutivo del Borrador del Pitch con encabezados de segundo nivel (##).
+
+---
+## Resumen Ejecutivo Detallado: {nombre_emprendimiento.upper() if nombre_emprendimiento else 'EL PROYECTO'}
+
+[Aquí va tu texto narrativo detallado, integrando la información de las respuestas en una explicación clara y amigable para un inversionista.]
+
+---
+## Borrador de Pitch de Elevador (3 Minutos): {nombre_emprendimiento.upper() if nombre_emprendimiento else 'EL PROYECTO'}
+
+[Aquí va tu borrador de pitch, más conversacional y directo.]
+
+---
+
+Asegúrate de basarte SÓLO en la información proporcionada. Si falta información crítica para algún aspecto, puedes omitirlo elegantemente o construir la narrativa con lo que sí tienes. Prioriza la claridad y la persuasión.
+"""
+    try:
+        messages = [HumanMessage(content=prompt_resumen_pitch)]
+        ai_response = llm.invoke(messages)
+        return ai_response.content
+    except Exception as e:
+        print(f"Error en llamada a Gemini API para resumen/pitch: {e}")
+        return f"Hubo un error al generar el resumen y pitch. El equipo técnico ha sido notificado."
 
 def main():
     global llm, _llm_initialization_error, GOOGLE_API_KEY, model_name_to_use, IS_STREAMLIT_CLOUD
@@ -149,6 +216,7 @@ def main():
     if 'volver_a_resumen_despues_de_editar' not in st.session_state: st.session_state.volver_a_resumen_despues_de_editar = False
     if 'editando_pregunta_id' not in st.session_state: st.session_state.editando_pregunta_id = None
     if 'edit_counts' not in st.session_state: st.session_state.edit_counts = {}
+    if 'resumen_y_pitch' not in st.session_state: st.session_state.resumen_y_pitch = None
 
     # --- Manejo de errores de configuración ---
     if not GOOGLE_API_KEY:
@@ -198,6 +266,7 @@ def main():
                 st.session_state.edit_counts = {}
                 st.session_state.editando_pregunta_id = None
                 st.session_state.volver_a_resumen_despues_de_editar = False
+                st.session_state.resumen_y_pitch = None
                 st.rerun()
             else:
                 st.warning("Por favor, completa ambos campos para continuar.")
@@ -243,18 +312,21 @@ def main():
             help="Escribe tu respuesta aquí y luego presiona 'Siguiente Pregunta'."
         )
 
+        edit_count_for_this_q = st.session_state.edit_counts.get(q_id, 0)
+
         if q_id in st.session_state.feedback_consultor:
             feedback_msg = st.session_state.feedback_consultor[q_id]
-            if feedback_msg.startswith("Se ha excedido la cuota"):
+
+            if feedback_msg.startswith("¡Gracias por tu esfuerzo y dedicación"):
+                 with st.chat_message("ai", avatar="🎉"):
+                    st.markdown(f"<div class='p-4 mt-4 rounded-lg bg-green-100 text-green-800 border border-green-300 shadow'>{feedback_msg}</div>", unsafe_allow_html=True)
+            elif feedback_msg.startswith("Se ha excedido la cuota"):
                 st.warning(feedback_msg)
             elif feedback_msg.startswith(("Hubo un error", "Error:", "El servicio de IA no está disponible")):
                 st.error(feedback_msg)
             elif feedback_msg == "Veo que no has ingresado una respuesta aún. Tómate tu tiempo para reflexionar sobre esta pregunta. ¿Qué ideas iniciales te vienen a la mente?":
                  with st.chat_message("ai", avatar="🧑‍🏫"):
                      st.markdown(f"<div class='p-4 mt-4 rounded-lg bg-yellow-100 text-yellow-800 border border-yellow-300 shadow'>{feedback_msg}</div>", unsafe_allow_html=True)
-            elif feedback_msg.startswith("¡Gracias por tu esfuerzo y dedicación"):
-                with st.chat_message("ai", avatar="🎉"):
-                    st.markdown(f"<div class='p-4 mt-4 rounded-lg bg-green-100 text-green-800 border border-green-300 shadow'>{feedback_msg}</div>", unsafe_allow_html=True)
             elif feedback_msg != "No se proporcionó respuesta para analizar.":
                  with st.chat_message("ai", avatar="🧑‍🏫"):
                      st.markdown(f"<div class='p-4 mt-4 rounded-lg bg-feedback-info-bg text-feedback-info-text border border-blue-200 shadow'>{feedback_msg}</div>", unsafe_allow_html=True)
@@ -263,19 +335,23 @@ def main():
         if st.button("Siguiente Pregunta ❯", key=f"siguiente_q_manual{q_id}", type="primary", use_container_width=True):
             respuesta_actual_procesada = respuesta_usuario_input.strip()
             st.session_state.respuestas[q_id] = respuesta_actual_procesada
-
-            edit_count_for_this_q = st.session_state.edit_counts.get(q_id, 0)
+            
+            # El conteo que se pasa a obtener_feedback_gemini es el número de veces que la pregunta YA HA SIDO EDITADA Y GUARDADA.
+            # Si es la primera vez que se responde (no se está editando), el contador es 0.
+            # Si se está guardando una edición (st.session_state.editando_pregunta_id no es None),
+            # el contador ya fue incrementado cuando se hizo clic en "Editar" en el resumen.
+            count_for_feedback_logic = st.session_state.edit_counts.get(q_id, 0)
+            
             feedback_obtenido = ""
-
             if llm and GOOGLE_API_KEY:
                 with st.spinner("El consultor IA está reflexionando sobre tu respuesta..."):
                     feedback_obtenido = obtener_feedback_gemini(
                         pregunta_actual_obj['texto'],
-                        pregunta_actual_obj['detalle'], 
+                        pregunta_actual_obj['detalle'],
                         respuesta_actual_procesada,
                         st.session_state.nombre_emprendimiento,
                         st.session_state.nombre_emprendedor,
-                        edit_count_for_this_q
+                        count_for_feedback_logic 
                     )
             elif not respuesta_actual_procesada:
                  feedback_obtenido = "Veo que no has ingresado una respuesta aún. Tómate tu tiempo para reflexionar sobre esta pregunta. ¿Qué ideas iniciales te vienen a la mente?"
@@ -284,17 +360,18 @@ def main():
 
             st.session_state.feedback_consultor[q_id] = feedback_obtenido
 
-            if st.session_state.editando_pregunta_id is not None:
+            if st.session_state.editando_pregunta_id is not None: # Si veníamos de editar
                 st.session_state.volver_a_resumen_despues_de_editar = True
-            else:
+                # El contador de edición ya se incrementó al hacer clic en "Editar"
+            else: # Flujo normal, primera respuesta a esta pregunta
                  st.session_state.pregunta_actual_idx += 1
             st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
-    else:
+    else: # VISTA DE RESUMEN Y PITCH
         st.success(f"¡Excelente trabajo, {st.session_state.get('nombre_emprendedor', 'Emprendedor/a')}! Has completado todas las preguntas iniciales para {st.session_state.get('nombre_emprendimiento', 'tu emprendimiento')}.")
         st.balloons()
 
-        st.markdown(f"<h2 class='text-2xl lg:text-3xl font-bold text-primario-app mt-8 mb-6 text-center'>Resumen para {st.session_state.get('nombre_emprendimiento', 'tu Emprendimiento')}:</h2>", unsafe_allow_html=True)
+        st.markdown(f"<h2 class='text-2xl lg:text-3xl font-bold text-primario-app mt-8 mb-6 text-center'>Resumen de tus Respuestas:</h2>", unsafe_allow_html=True)
 
         if not st.session_state.respuestas:
             st.warning("Aún no has respondido ninguna pregunta.")
@@ -328,10 +405,13 @@ def main():
                 cols_edit_button = st.columns([0.8, 0.2])
                 with cols_edit_button[0]:
                     if st.button(f"✏️ Editar Respuesta", key=f"edit_btn_manual_{q_id_resumen}", use_container_width=True):
+                        # Incrementar contador ANTES de ir a editar
                         st.session_state.edit_counts[q_id_resumen] = st.session_state.edit_counts.get(q_id_resumen, 0) + 1
+                        
                         st.session_state.pregunta_actual_idx = i
                         st.session_state.editando_pregunta_id = q_id_resumen
                         st.session_state.volver_a_resumen_despues_de_editar = False
+                        st.session_state.resumen_y_pitch = None # Limpiar resumen si se edita algo
                         st.rerun()
                 with cols_edit_button[1]:
                     edit_count_for_q = st.session_state.edit_counts.get(q_id_resumen, 0)
@@ -341,14 +421,39 @@ def main():
                 if i < len(preguntas_emprendimiento) -1 :
                     st.markdown("<div class='h-px bg-borde-contenedor my-6'></div>", unsafe_allow_html=True)
 
-            st.markdown("<div class='mt-10 text-center space-y-4 md:space-y-0 md:flex md:justify-center md:space-x-4'>", unsafe_allow_html=True)
-            if st.button("🏁 Completado y Conforme", type="primary", key="completado_final_manual"):
-                st.info("¡Genial! Has sentado una base sólida. En futuros módulos podremos profundizar aún más.")
-            if st.button("🔄 Reiniciar Todo el Cuestionario", key="reiniciar_final_manual"):
+            st.markdown("<div class='mt-10 text-center space-y-4'>", unsafe_allow_html=True)
+
+            if st.button("🏁 Generar Resumen y Pitch Borrador", type="primary", key="completado_final_manual_v2", help="La IA analizará tus respuestas para crear un resumen y un borrador de pitch.", use_container_width=True):
+                if llm and GOOGLE_API_KEY and st.session_state.respuestas :
+                    respuestas_validas = {k: v for k, v in st.session_state.respuestas.items() if v and v.strip() and v.lower() != "no respondida."}
+                    if len(respuestas_validas) > 0: # Solo generar si hay al menos una respuesta válida
+                        with st.spinner("Generando tu resumen y pitch borrador... Esto puede tardar un momento."):
+                            resumen_pitch_texto = generar_resumen_y_pitch(
+                                st.session_state.respuestas, # Enviar todas las respuestas
+                                preguntas_emprendimiento,
+                                st.session_state.nombre_emprendimiento,
+                                st.session_state.nombre_emprendedor
+                            )
+                            st.session_state.resumen_y_pitch = resumen_pitch_texto
+                    else:
+                        st.warning("Por favor, responde al menos una pregunta con detalle antes de generar el resumen.")
+                elif not st.session_state.respuestas:
+                     st.warning("Por favor, responde algunas preguntas antes de generar el resumen.")
+                else: # Problema con LLM o API Key
+                    st.error("La IA no está disponible para generar el resumen y pitch en este momento.")
+
+            if st.session_state.resumen_y_pitch:
+                st.markdown("<div class='mt-6 p-6 bg-fondo-contenedor rounded-xl shadow-lg border border-borde-contenedor text-left'>", unsafe_allow_html=True)
+                st.markdown(st.session_state.resumen_y_pitch, unsafe_allow_html=True) # Usar True si la IA genera HTML/Markdown complejo
+                st.markdown("</div>", unsafe_allow_html=True)
+                st.info("Recuerda que este es solo un borrador. ¡Úsalo como inspiración y ajústalo a tu estilo!")
+
+            if st.button("🔄 Reiniciar Todo el Cuestionario", key="reiniciar_final_manual_v2", help="Esto borrará todas tus respuestas y comenzarás de nuevo.", use_container_width=True):
                 keys_to_delete = list(st.session_state.keys())
                 for key in keys_to_delete: del st.session_state[key]
                 st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
+
     st.markdown("</div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
